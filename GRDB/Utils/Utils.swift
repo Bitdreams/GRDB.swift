@@ -32,7 +32,7 @@ public protocol _OptionalProtocol {
 /// :nodoc:
 extension Optional: _OptionalProtocol { }
 
-#if swift(>=5.5) && canImport(_Concurrency)
+#if swift(>=5.6) && canImport(_Concurrency)
 public typealias GRDBSendable = Swift.Sendable
 #else
 public typealias GRDBSendable = Any
@@ -172,7 +172,7 @@ func concat<T>(_ rhs: ((T) -> Void)?, _ lhs: ((T) -> Void)?) -> ((T) -> Void)? {
     }
 }
 
-extension NSRecursiveLock {
+extension NSLocking {
     func synchronized<T>(
         _ message: @autoclosure () -> String = #function,
         _ block: () throws -> T)

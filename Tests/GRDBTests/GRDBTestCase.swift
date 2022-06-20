@@ -105,7 +105,7 @@ class GRDBTestCase: XCTestCase {
         
         dbConfiguration.prepareDatabase { db in
             db.trace { event in
-                self.sqlQueries.append(event.description)
+                self.sqlQueries.append(event.expandedDescription)
             }
             
             #if GRDBCIPHER_USE_ENCRYPTION
@@ -258,3 +258,8 @@ public struct AnyValueReducer<Fetched, Value>: ValueReducer {
         __value(fetched)
     }
 }
+
+#if swift(>=5.6) && canImport(_Concurrency)
+// Assume this is correct :-/
+extension XCTestExpectation: @unchecked Sendable { }
+#endif

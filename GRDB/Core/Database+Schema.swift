@@ -626,7 +626,7 @@ extension Database {
     }
     
     /// If there exists a unique key on columns, return the columns
-    /// ordered as the matching index (or primay key). Case of returned columns
+    /// ordered as the matching index (or primary key). Case of returned columns
     /// is not guaranteed.
     func columnsForUniqueKey<T: Sequence>(
         _ columns: T,
@@ -1046,9 +1046,9 @@ struct SchemaInfo: Equatable {
     
     /// - parameter masterTable: "sqlite_master" or "sqlite_temp_master"
     init(_ db: Database, masterTableName: String) throws { // swiftlint:disable:this inclusive_language
-        objects = try Set(SchemaObject.fetchCursor(db, sql: """
+        objects = try SchemaObject.fetchSet(db, sql: """
             SELECT type, name, tbl_name, sql FROM \(masterTableName)
-            """))
+            """)
     }
     
     /// All names for a given type

@@ -134,12 +134,6 @@ public protocol DatabaseWriter: DatabaseReader {
     /// in a transaction.
     func asyncWriteWithoutTransaction(_ updates: @escaping (Database) -> Void)
     
-    /// Asynchronously executes database updates in a protected dispatch queue,
-    /// outside of any transaction, without retaining self.
-    ///
-    /// :nodoc:
-    func _weakAsyncWriteWithoutTransaction(_ updates: @escaping (Database?) -> Void)
-    
     /// Synchronously executes database updates in a protected dispatch queue,
     /// outside of any transaction, and returns the result.
     ///
@@ -299,9 +293,7 @@ extension DatabaseWriter {
     }
     
     public func remove(transactionObserver: TransactionObserver) {
-        _weakAsyncWriteWithoutTransaction {
-            $0?.remove(transactionObserver: transactionObserver)
-        }
+        writeWithoutTransaction { $0.remove(transactionObserver: transactionObserver) }
     }
     
     // MARK: - Erasing the content of the database
@@ -366,56 +358,29 @@ extension DatabaseWriter {
     
     // MARK: - Database Observation
     
-    /// A write-only observation only uses the serialized writer
+    /// Starts an observation that fetches fresh database values synchronously,
+    /// from the writer database connection, right after the database
+    /// was modified.
     func _addWriteOnly<Reducer: ValueReducer>(
         observation: ValueObservation<Reducer>,
         scheduling scheduler: ValueObservationScheduler,
         onChange: @escaping (Reducer.Value) -> Void)
-    -> ValueObserver<Reducer> // For testability
+    -> DatabaseCancellable
     {
         assert(!configuration.readonly, "Use _addReadOnly(observation:) instead")
-        
-        let reduceQueueLabel = configuration.identifier(
-            defaultLabel: "GRDB",
-            purpose: "ValueObservation")
-        let observer = ValueObserver(
-            observation: observation,
+        let observer = ValueWriteOnlyObserver(
             writer: self,
             scheduler: scheduler,
-            reduceQueue: configuration.makeDispatchQueue(label: reduceQueueLabel),
+            readOnly: !observation.requiresWriteAccess,
+            trackingMode: observation.trackingMode,
+            reducer: observation.makeReducer(),
+            events: observation.events,
             onChange: onChange)
-        
-        if scheduler.immediateInitialValue() {
-            do {
-                let initialValue: Reducer.Value = try unsafeReentrantWrite { db in
-                    let initialValue = try observer.fetchInitialValue(db)
-                    db.add(transactionObserver: observer, extent: .observerLifetime)
-                    return initialValue
-                }
-                onChange(initialValue)
-            } catch {
-                observer.complete()
-                observation.events.didFail?(error)
-            }
-        } else {
-            _weakAsyncWriteWithoutTransaction { db in
-                guard let db = db else { return }
-                if observer.isCompleted { return }
-                do {
-                    let initialValue = try observer.fetchInitialValue(db)
-                    observer.notifyChange(initialValue)
-                    db.add(transactionObserver: observer, extent: .observerLifetime)
-                } catch {
-                    observer.notifyErrorAndComplete(error)
-                }
-            }
-        }
-        
-        return observer
+        return observer.start()
     }
 }
 
-#if compiler(>=5.5.2) && canImport(_Concurrency)
+#if compiler(>=5.6) && canImport(_Concurrency)
 extension DatabaseWriter {
     // MARK: - Asynchronous Database Access
     
@@ -576,11 +541,11 @@ extension DatabaseWriter {
     -> DatabasePublishers.Write<Output>
     where S: Scheduler
     {
-        OnDemandFuture({ fulfill in
+        OnDemandFuture { fulfill in
             self.asyncWrite(updates, completion: { _, result in
                 fulfill(result)
             })
-        })
+        }
         // We don't want users to process emitted values on a
         // database dispatch queue.
         .receiveValues(on: scheduler)
@@ -629,7 +594,7 @@ extension DatabaseWriter {
     -> DatabasePublishers.Write<Output>
     where S: Scheduler
     {
-        OnDemandFuture({ fulfill in
+        OnDemandFuture { fulfill in
             self.asyncWriteWithoutTransaction { db in
                 var updatesValue: T?
                 do {
@@ -645,7 +610,7 @@ extension DatabaseWriter {
                     fulfill(dbResult.flatMap { db in Result { try value(db, updatesValue!) } })
                 }
             }
-        })
+        }
         // We don't want users to process emitted values on a
         // database dispatch queue.
         .receiveValues(on: scheduler)
@@ -760,11 +725,6 @@ public final class AnyDatabaseWriter: DatabaseWriter {
         base.asyncRead(value)
     }
     
-    /// :nodoc:
-    public func _weakAsyncRead(_ value: @escaping (Result<Database, Error>?) -> Void) {
-        base._weakAsyncRead(value)
-    }
-    
     @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func unsafeRead<T>(_ value: (Database) throws -> T) throws -> T {
         try base.unsafeRead(value)
@@ -817,11 +777,6 @@ public final class AnyDatabaseWriter: DatabaseWriter {
     
     public func asyncWriteWithoutTransaction(_ updates: @escaping (Database) -> Void) {
         base.asyncWriteWithoutTransaction(updates)
-    }
-    
-    /// :nodoc:
-    public func _weakAsyncWriteWithoutTransaction(_ updates: @escaping (Database?) -> Void) {
-        base._weakAsyncWriteWithoutTransaction(updates)
     }
     
     public func unsafeReentrantWrite<T>(_ updates: (Database) throws -> T) rethrows -> T {

@@ -325,7 +325,7 @@ public struct SQLExpression {
         ///     let operator = BinaryOperator("LIKE", negated: "NOT LIKE")
         ///     operator.negated!.sql  // NOT LIKE
         var negated: EscapableBinaryOperator {
-            return EscapableBinaryOperator(negatedSQL, negated: sql)
+            EscapableBinaryOperator(negatedSQL, negated: sql)
         }
         
         /// The `LIKE` escapable binary operator
@@ -784,7 +784,7 @@ extension SQLExpression {
         return try sql(context)
     }
     
-    /// If this expression is a table colum, returns the name of this column.
+    /// If this expression is a table column, returns the name of this column.
     ///
     /// When in doubt, returns nil.
     ///

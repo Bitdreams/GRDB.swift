@@ -21,6 +21,9 @@ extension RangeReplaceableCollection {
     /// - parameter cursor: The cursor whose elements feed the collection.
     public init<C: Cursor>(_ cursor: C) throws where C.Element == Element {
         self.init()
+        // Prefer `forEach` over `next()` looping, as a slight performance
+        // improvement due to the single `sqlite3_stmt_busy` check for
+        // database cursors.
         try cursor.forEach { append($0) }
     }
     
@@ -36,6 +39,9 @@ extension RangeReplaceableCollection {
     public init<C: Cursor>(_ cursor: C, minimumCapacity: Int) throws where C.Element == Element {
         self.init()
         reserveCapacity(minimumCapacity)
+        // Prefer `forEach` over `next()` looping, as a slight performance
+        // improvement due to the single `sqlite3_stmt_busy` check for
+        // database cursors.
         try cursor.forEach { append($0) }
     }
 }
@@ -56,6 +62,9 @@ extension Dictionary {
     throws where Value == [C.Element]
     {
         self.init()
+        // Prefer `forEach` over `next()` looping, as a slight performance
+        // improvement due to the single `sqlite3_stmt_busy` check for
+        // database cursors.
         try cursor.forEach { value in
             try self[keyForValue(value), default: []].append(value)
         }
@@ -82,6 +91,9 @@ extension Dictionary {
     throws where Value == [C.Element]
     {
         self.init(minimumCapacity: minimumCapacity)
+        // Prefer `forEach` over `next()` looping, as a slight performance
+        // improvement due to the single `sqlite3_stmt_busy` check for
+        // database cursors.
         try cursor.forEach { value in
             try self[keyForValue(value), default: []].append(value)
         }
@@ -104,6 +116,9 @@ extension Dictionary {
     throws where C.Element == (Key, Value)
     {
         self.init()
+        // Prefer `forEach` over `next()` looping, as a slight performance
+        // improvement due to the single `sqlite3_stmt_busy` check for
+        // database cursors.
         try keysAndValues.forEach { key, value in
             if updateValue(value, forKey: key) != nil {
                 fatalError("Duplicate values for key: '\(String(describing: key))'")
@@ -133,6 +148,9 @@ extension Dictionary {
     throws where C.Element == (Key, Value)
     {
         self.init(minimumCapacity: minimumCapacity)
+        // Prefer `forEach` over `next()` looping, as a slight performance
+        // improvement due to the single `sqlite3_stmt_busy` check for
+        // database cursors.
         try keysAndValues.forEach { key, value in
             if updateValue(value, forKey: key) != nil {
                 fatalError("Duplicate values for key: '\(String(describing: key))'")
@@ -151,6 +169,9 @@ extension Set {
     /// - parameter cursor: A cursor of values to gather into a set.
     public init<C: Cursor>(_ cursor: C) throws where C.Element == Element {
         self.init()
+        // Prefer `forEach` over `next()` looping, as a slight performance
+        // improvement due to the single `sqlite3_stmt_busy` check for
+        // database cursors.
         try cursor.forEach { insert($0) }
     }
     
@@ -166,6 +187,9 @@ extension Set {
     ///   storage buffer.
     public init<C: Cursor>(_ cursor: C, minimumCapacity: Int) throws where C.Element == Element {
         self.init(minimumCapacity: minimumCapacity)
+        // Prefer `forEach` over `next()` looping, as a slight performance
+        // improvement due to the single `sqlite3_stmt_busy` check for
+        // database cursors.
         try cursor.forEach { insert($0) }
     }
 }
@@ -768,6 +792,13 @@ public final class EnumeratedCursor<Base: Cursor>: Cursor {
         defer { index += 1 }
         return (index, element)
     }
+    
+    public func forEach(_ body: ((Int, Base.Element)) throws -> Void) throws {
+        try base.forEach { element in
+            defer { index += 1 }
+            try body((index, element))
+        }
+    }
 }
 
 /// A cursor whose elements consist of the elements of some base cursor that
@@ -790,6 +821,14 @@ public final class FilterCursor<Base: Cursor>: Cursor {
             }
         }
         return nil
+    }
+    
+    public func forEach(_ body: (Base.Element) throws -> Void) throws {
+        try base.forEach { element in
+            if try isIncluded(element) {
+                try body(element)
+            }
+        }
     }
 }
 
@@ -838,6 +877,12 @@ public final class MapCursor<Base: Cursor, Element>: Cursor {
     public func next() throws -> Element? {
         guard let element = try base.next() else { return nil }
         return try transform(element)
+    }
+    
+    public func forEach(_ body: (Element) throws -> Void) throws {
+        try base.forEach { element in
+            try body(transform(element))
+        }
     }
 }
 
